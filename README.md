@@ -9,6 +9,13 @@ Original premium design inspired by modern AI voice studio patterns, not a copy 
 - 5 female + 5 male Hindi **tone presets**, derived from **two distinct Hindi neural voices** (Swara and Madhur). These are not ten separate Hindi voice models.
 - 10 additional language voices: English, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Urdu.
 - MP3 playback and download; adjustable speed and pitch.
+- **Sound effects (v3):** 18 built-in effects synthesised in code (`sfx.py`, numpy only, no paid API, no audio files):
+  door creak, knock, slam, footsteps, glass break, temple bell, gunshot, thunder, whoosh, owl,
+  and background ambiences: wind, rain, night crickets, heartbeat, clock, fire, water, horror drone.
+  - Put tags in the script, e.g. `[दरवाज़ा]`, `[हवा]`, `[दस्तक]`, `[बारिश]` — the effect plays at that point.
+  - Optional auto-detect: sentences like “दरवाज़ा खुल गया” or “तेज़ हवा चल रही थी” get the effect added after them.
+  - Effects are mixed under the voiceover into one MP3, or each effect can be previewed/downloaded separately
+    from the Sound Effects library (`/api/sfx/<key>`).
 
 ## Local setup
 Install Python 3.10+ then:

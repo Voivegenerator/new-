@@ -7,10 +7,15 @@ import tempfile
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file
 import edge_tts
+import numpy as np
+import imageio_ffmpeg
+
+import sfx
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
-app.config['MAX_CONTENT_LENGTH'] = 40000
+app.config['MAX_CONTENT_LENGTH'] = 60000
+MIX_SR = 24000
 
 # Hindi has two distinct base voices; five presets per gender use pitch/rate variations.
 VOICES = {
@@ -85,6 +90,87 @@ async def synthesize(text, voice, rate, pitch):
             raise RuntimeError('Audio merge failed')
         return output.read_bytes()
 
+
+# ------------------------------------------------------------ audio helpers
+def ffmpeg_exe():
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def mp3_to_pcm(mp3_bytes, sr=MIX_SR):
+    result = subprocess.run([ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-i', 'pipe:0',
+                             '-f', 's16le', '-ac', '1', '-ar', str(sr), 'pipe:1'],
+                            input=mp3_bytes, capture_output=True, timeout=90)
+    if result.returncode != 0:
+        raise RuntimeError('Audio decode failed')
+    return np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def pcm_to_mp3(samples, sr):
+    pcm = (np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes()
+    result = subprocess.run([ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-f', 's16le',
+                             '-ac', '1', '-ar', str(sr), '-i', 'pipe:0', '-codec:a', 'libmp3lame',
+                             '-b:a', '160k', '-f', 'mp3', 'pipe:1'],
+                            input=pcm, capture_output=True, timeout=90)
+    if result.returncode != 0 or not result.stdout:
+        raise RuntimeError('MP3 encode failed')
+    return result.stdout
+
+
+async def synthesize_segments(texts, voice, rate, pitch):
+    sem = asyncio.Semaphore(4)
+
+    async def one(t):
+        async with sem:
+            return await synthesize(t, voice, rate, pitch)
+    return await asyncio.gather(*(one(t) for t in texts))
+
+
+ONESHOT_GAIN = 0.55
+AMBIENT_GAIN = 0.20
+AMBIENT_SECONDS = 12.0
+
+
+def build_mix(items, voice, rate, pitch, sfx_volume=1.0):
+    """items: [('text', str) | ('sfx', key)] -> mixed MP3 bytes."""
+    texts = [v for k, v in items if k == 'text' and re.search(r'\w', v)]
+    voice_parts = asyncio.run(synthesize_segments(texts, voice, rate, pitch)) if texts else []
+    voice_pcm = iter([mp3_to_pcm(a) for a in voice_parts])
+
+    sr = MIX_SR
+    voice_track, events = [], []  # events: (start_sample, samples)
+    cursor = 0
+    for kind, val in items:
+        if kind == 'text':
+            if not re.search(r'\w', val):
+                continue
+            pcm = next(voice_pcm)
+            voice_track.append((cursor, pcm))
+            cursor += len(pcm)
+        else:
+            if sfx.is_ambient(val):
+                fx = sfx.generate(val, sr, AMBIENT_SECONDS) * AMBIENT_GAIN
+                events.append((cursor, fx))
+                cursor += int(0.6 * sr)
+            else:
+                fx = sfx.generate(val, sr) * ONESHOT_GAIN
+                events.append((cursor, fx))
+                cursor += int(min(len(fx) / sr * 0.7, 2.5) * sr)
+    total = max([cursor] + [s + len(x) for s, x in voice_track] + [s + len(x) for s, x in events])
+    total += int(0.3 * sr)
+    voice_mix = np.zeros(total, dtype=np.float32)
+    fx_mix = np.zeros(total, dtype=np.float32)
+    for s, x in voice_track:
+        voice_mix[s:s + len(x)] += x
+    for s, x in events:
+        fx_mix[s:s + len(x)] += x
+    vpeak = float(np.max(np.abs(voice_mix))) or 1.0
+    out = voice_mix / vpeak * 0.9 + fx_mix * 0.9 * sfx_volume
+    peak = float(np.max(np.abs(out)))
+    if peak > 0.98:
+        out = out / peak * 0.98
+    return pcm_to_mp3(out, sr)
+
+
 @app.get('/')
 def home():
     return render_template('index.html')
@@ -112,13 +198,66 @@ def tts():
     voice, preset_rate, preset_pitch = selected
     speed = max(-50, min(50, speed + preset_rate))
     pitch = max(-50, min(50, pitch + preset_pitch))
+    rate_s, pitch_s = f'{speed:+d}%', f'{pitch:+d}Hz'
+    use_sfx = bool(payload.get('sfx', False))
     try:
-        audio = asyncio.run(synthesize(text, voice, f'{speed:+d}%', f'{pitch:+d}Hz'))
+        if use_sfx:
+            items = sfx.parse_script(text, auto=bool(payload.get('auto', True)))
+            try:
+                vol = float(payload.get('sfx_volume', 1.0))
+            except (TypeError, ValueError):
+                vol = 1.0
+            vol = max(0.0, min(2.0, vol))
+            if any(k == 'sfx' for k, _ in items):
+                audio = build_mix(items, voice, rate_s, pitch_s, vol)
+            else:
+                audio = asyncio.run(synthesize(sfx.strip_tags(text), voice, rate_s, pitch_s))
+        else:
+            clean = sfx.strip_tags(text).strip()
+            if not clean:
+                return jsonify(error='बोलने के लिए टेक्स्ट नहीं मिला।'), 400
+            audio = asyncio.run(synthesize(clean, voice, rate_s, pitch_s))
         return send_file(io.BytesIO(audio), mimetype='audio/mpeg', as_attachment=False,
                          download_name='VoiceGenrator.mp3', max_age=0)
     except Exception:
         app.logger.exception('TTS generation failed')
         return jsonify(error='आवाज़ नहीं बन सकी। वॉइस सेवा या सर्वर जाँचें।'), 502
+
+
+@app.get('/api/sfx/list')
+def sfx_list():
+    return jsonify(effects=sfx.catalogue())
+
+
+@app.post('/api/sfx/detect')
+def sfx_detect():
+    payload = request.get_json(silent=True) or {}
+    text = str(payload.get('text', ''))[:5000]
+    items = sfx.parse_script(text, auto=bool(payload.get('auto', True)))
+    seen, found = set(), []
+    info = {e['key']: e for e in sfx.catalogue()}
+    for kind, val in items:
+        if kind == 'sfx' and val not in seen:
+            seen.add(val)
+            found.append(info[val])
+    return jsonify(effects=found)
+
+
+@app.get('/api/sfx/<key>')
+def sfx_one(key):
+    if key not in sfx.EFFECTS:
+        return jsonify(error='यह साउंड इफ़ेक्ट उपलब्ध नहीं है।'), 404
+    try:
+        dur = request.args.get('dur', type=float)
+        if dur is not None:
+            dur = max(2.0, min(60.0, dur))
+        data = sfx.generate(key, 44100, dur if sfx.is_ambient(key) else None)
+        audio = pcm_to_mp3(data, 44100)
+        return send_file(io.BytesIO(audio), mimetype='audio/mpeg', as_attachment=False,
+                         download_name=f'{key}.mp3', max_age=0)
+    except Exception:
+        app.logger.exception('SFX generation failed')
+        return jsonify(error='साउंड इफ़ेक्ट नहीं बन सका।'), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')))
