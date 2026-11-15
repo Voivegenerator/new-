@@ -175,6 +175,12 @@ def build_mix(items, voice, rate, pitch, sfx_volume=1.0):
 def home():
     return render_template('index.html')
 
+@app.get('/ads.txt')
+def ads_txt():
+    return app.response_class('google.com, pub-4167370296441487, DIRECT, f08c47fec0942fa0\n',
+                              mimetype='text/plain')
+
+
 @app.get('/health')
 def health():
     return jsonify(status='ok')
