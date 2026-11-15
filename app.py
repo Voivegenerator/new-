@@ -175,6 +175,53 @@ def build_mix(items, voice, rate, pitch, sfx_volume=1.0):
 def home():
     return render_template('index.html')
 
+SITE = 'https://hindi-ai-voice-studio.onrender.com'
+POSTS = [
+    {'slug': 'hindi-ai-voiceover-kaise-banaye', 'title': 'हिंदी में AI वॉइसओवर कैसे बनाएँ — पूरी गाइड',
+     'summary': 'स्क्रिप्ट तैयार करने से लेकर आवाज़ चुनने और MP3 डाउनलोड करने तक, कदम-दर-कदम।'},
+    {'slug': 'horror-kahani-sound-effects', 'title': 'हॉरर कहानी में साउंड इफ़ेक्ट कैसे लगाएँ',
+     'summary': 'दरवाज़ा, हवा, दस्तक जैसे इफ़ेक्ट सही जगह पर लगाने के तरीके और साउंड डिज़ाइन के नियम।'},
+    {'slug': 'voice-speed-pitch-settings', 'title': 'वॉइसओवर की गति और पिच: सही सेटिंग कैसे चुनें',
+     'summary': 'कहानी, न्यूज़, शॉर्ट्स और बच्चों की कहानियों के लिए शुरुआती सेटिंग्स।'},
+    {'slug': 'voiceover-script-likhne-ke-tips', 'title': 'अच्छी वॉइसओवर स्क्रिप्ट लिखने के 10 टिप्स',
+     'summary': 'सुनने के लिए लिखना पढ़ने के लिए लिखने से अलग है — ये टिप्स आपकी स्क्रिप्ट को असरदार बनाएँगे।'},
+    {'slug': 'ai-voice-youtube-niyam', 'title': 'YouTube पर AI आवाज़ इस्तेमाल करते समय किन बातों का ध्यान रखें',
+     'summary': 'मौलिक कंटेंट, कॉपीराइट, नकल से बचाव और दर्शकों का भरोसा।'},
+]
+POST_SLUGS = {p['slug'] for p in POSTS}
+STATIC_PAGES = ['about', 'privacy', 'terms', 'contact']
+
+
+@app.get('/blog')
+def blog_index():
+    return render_template('pages/blog.html', posts=POSTS)
+
+
+@app.get('/blog/<slug>')
+def blog_post(slug):
+    if slug not in POST_SLUGS:
+        return render_template('pages/blog.html', posts=POSTS), 404
+    return render_template(f'blog/{slug}.html')
+
+
+@app.get('/<any(about, privacy, terms, contact):page>')
+def static_page(page):
+    return render_template(f'pages/{page}.html')
+
+
+@app.get('/robots.txt')
+def robots_txt():
+    return app.response_class(f'User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n', mimetype='text/plain')
+
+
+@app.get('/sitemap.xml')
+def sitemap_xml():
+    urls = ['/', '/blog'] + [f'/{p}' for p in STATIC_PAGES] + [f"/blog/{p['slug']}" for p in POSTS]
+    body = ''.join(f'<url><loc>{SITE}{u}</loc></url>' for u in urls)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>'
+    return app.response_class(xml, mimetype='application/xml')
+
+
 @app.get('/ads.txt')
 def ads_txt():
     return app.response_class('google.com, pub-4167370296441487, DIRECT, f08c47fec0942fa0\n',
