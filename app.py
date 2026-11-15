@@ -189,7 +189,7 @@ POSTS = [
      'summary': 'मौलिक कंटेंट, कॉपीराइट, नकल से बचाव और दर्शकों का भरोसा।'},
 ]
 POST_SLUGS = {p['slug'] for p in POSTS}
-STATIC_PAGES = ['about', 'privacy', 'terms', 'contact']
+STATIC_PAGES = ['app', 'about', 'privacy', 'terms', 'contact']
 
 
 @app.get('/blog')
@@ -204,7 +204,7 @@ def blog_post(slug):
     return render_template(f'blog/{slug}.html')
 
 
-@app.get('/<any(about, privacy, terms, contact):page>')
+@app.get('/<any(app, about, privacy, terms, contact):page>')
 def static_page(page):
     return render_template(f'pages/{page}.html')
 
