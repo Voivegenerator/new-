@@ -222,6 +222,16 @@ def sitemap_xml():
     return app.response_class(xml, mimetype='application/xml')
 
 
+@app.get('/google0d3851bdc18b670c.html')
+def google_verify():
+    return app.response_class('google-site-verification: google0d3851bdc18b670c.html', mimetype='text/html')
+
+
+@app.get('/favicon.ico')
+def favicon():
+    return app.send_static_file('favicon.svg')
+
+
 @app.get('/ads.txt')
 def ads_txt():
     return app.response_class('google.com, pub-4167370296441487, DIRECT, f08c47fec0942fa0\n',
