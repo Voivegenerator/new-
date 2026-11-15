@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'com.voicegenrator.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.voicegenrator.app"
+        minSdk 24
+        targetSdk 34
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    signingConfigs {
+        release {
+            // Optional private key: add repository secrets SIGNING_KEYSTORE_BASE64 and
+            // SIGNING_PASSWORD to keep the same signature across updates.
+            def ks = System.getenv("SIGNING_KEYSTORE_PATH")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("SIGNING_PASSWORD")
+                keyAlias "voicegenrator"
+                keyPassword System.getenv("SIGNING_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv("SIGNING_KEYSTORE_PATH") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
