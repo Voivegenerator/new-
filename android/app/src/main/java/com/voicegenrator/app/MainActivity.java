@@ -40,7 +40,7 @@ import java.io.OutputStream;
 
 public class MainActivity extends Activity {
 
-    private static final String HOST = "hindi-ai-voice-studio.onrender.com";
+    private static final String HOST = "aivoicestudio.onrender.com";
     private static final String HOME = "https://" + HOST + "/";
     private static final int BG = 0xFF090B19;
     private static final int REQ_STORAGE = 7;

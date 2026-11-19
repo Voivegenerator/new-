@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: hindi-ai-voice-studio
+    name: aivoicestudio
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

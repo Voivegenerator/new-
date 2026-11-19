@@ -49,5 +49,5 @@ jobs:
           TAG="app-v1.0.${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" VoiceGenrator.apk \
             --title "VoiceGenrator Android App v1.0.${GITHUB_RUN_NUMBER}" \
-            --notes "Android app for https://hindi-ai-voice-studio.onrender.com — download VoiceGenrator.apk below." \
+            --notes "Android app for https://aivoicestudio.onrender.com — download VoiceGenrator.apk below." \
             --latest

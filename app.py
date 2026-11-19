@@ -366,7 +366,7 @@ def add_music(voice, tune_id, level=0.35):
 def home():
     return render_template('index.html')
 
-SITE = 'https://hindi-ai-voice-studio.onrender.com'
+SITE = 'https://aivoicestudio.onrender.com'
 POSTS = [
     {'slug': 'hindi-ai-voiceover-kaise-banaye', 'title': 'हिंदी में AI वॉइसओवर कैसे बनाएँ — पूरी गाइड',
      'summary': 'स्क्रिप्ट तैयार करने से लेकर आवाज़ चुनने और MP3 डाउनलोड करने तक, कदम-दर-कदम।'},
