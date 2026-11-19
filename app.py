@@ -36,19 +36,22 @@ VOICES = {
  'mr': ('mr-IN-AarohiNeural', 0, 0), 'gu': ('gu-IN-DhwaniNeural', 0, 0),
  'kn': ('kn-IN-SapnaNeural', 0, 0), 'ml': ('ml-IN-SobhanaNeural', 0, 0),
  'pa': ('pa-IN-GurleenNeural', 0, 0), 'ur': ('ur-IN-GulNeural', 0, 0),
- # v4: five new Hindi voice models (different neural voices / engines, not presets)
- 'hi_new_ava': ('en-US-AvaMultilingualNeural', 0, 0),
- 'hi_new_emma': ('en-US-EmmaMultilingualNeural', 0, 0),
+ # v4: new Hindi voice models (different neural voices / engines, not presets)
  'hi_new_andrew': ('en-US-AndrewMultilingualNeural', 0, 0),
  'hi_new_brian': ('en-US-BrianMultilingualNeural', 0, 0),
  'hi_new_google': ('gtts:co.in', 0, 0),
+ # v5: Gemini TTS — emotional/expressive narration, replaces Ava & Emma
+ 'hi_new_gemini': ('gemini:Kore', 0, 0),
 }
 # If a new multilingual voice is unavailable, fall back to the closest Hindi voice.
 FALLBACK = {
- 'en-US-AvaMultilingualNeural': 'hi-IN-SwaraNeural', 'en-US-EmmaMultilingualNeural': 'hi-IN-SwaraNeural',
  'en-US-AndrewMultilingualNeural': 'hi-IN-MadhurNeural', 'en-US-BrianMultilingualNeural': 'hi-IN-MadhurNeural',
  'gtts:co.in': 'hi-IN-SwaraNeural',
+ 'gemini:Kore': 'hi-IN-SwaraNeural',
 }
+
+# Gemini TTS follows a natural-language style instruction placed before the text.
+GEMINI_STYLE = 'भावनात्मक और कहानी सुनाने वाले अंदाज़ में, प्राकृतिक उतार-चढ़ाव के साथ बोलो'
 
 def split_text(text, limit=1100):
     pieces = re.split(r'(?<=[।.!?\n])\s*', text)
@@ -104,6 +107,45 @@ def gtts_piece(text, tld, rate, pitch):
     return result.stdout
 
 
+def gemini_piece(text, voice_name, rate, pitch):
+    """Gemini TTS — expressive/emotional Hindi narration, guided by a style instruction."""
+    from google import genai
+    from google.genai import types
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        raise RuntimeError('GEMINI_API_KEY not configured')
+    client = genai.Client(api_key=api_key)
+    resp = client.models.generate_content(
+        model='gemini-2.5-flash-preview-tts',
+        contents=f'{GEMINI_STYLE}: {text}',
+        config=types.GenerateContentConfig(
+            response_modalities=['AUDIO'],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name))),
+        ),
+    )
+    part = resp.candidates[0].content.parts[0]
+    data = part.inline_data.data
+    mime = part.inline_data.mime_type or 'audio/L16;rate=24000'
+    m = re.search(r'rate=(\d+)', mime)
+    sr = int(m.group(1)) if m else 24000
+    if not data:
+        raise RuntimeError('No audio returned from Gemini')
+
+    speed, hz = int(rate.rstrip('%')), int(pitch.rstrip('Hz'))
+    p = (200 + hz) / 200.0
+    tempo = max(0.5, min(2.0, (1 + speed / 100.0) / p))
+    flt = f'asetrate={sr}*{p:.4f},aresample=24000,atempo={tempo:.4f}' if (speed or hz) else 'aresample=24000'
+    result = subprocess.run([ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-f', 's16le', '-ar', str(sr),
+                             '-ac', '1', '-i', 'pipe:0', '-af', flt, '-ar', '24000', '-ac', '1',
+                             '-codec:a', 'libmp3lame', '-b:a', '64k', '-f', 'mp3', 'pipe:1'],
+                            input=data, capture_output=True, timeout=120)
+    if result.returncode != 0 or not result.stdout:
+        raise RuntimeError('Gemini TTS post-process failed: ' + result.stderr.decode(errors='ignore')[-200:])
+    return result.stdout
+
+
 async def _edge_piece(text, voice, rate, pitch):
     data = bytearray()
     async for item in edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).stream():
@@ -120,6 +162,8 @@ async def synthesize_piece(text, voice, rate, pitch):
         try:
             if voice.startswith('gtts:'):
                 return await asyncio.to_thread(gtts_piece, text, voice.split(':', 1)[1], rate, pitch)
+            if voice.startswith('gemini:'):
+                return await asyncio.to_thread(gemini_piece, text, voice.split(':', 1)[1], rate, pitch)
             return await _edge_piece(text, voice, rate, pitch)
         except Exception as exc:  # retry once, then fall back to a Hindi voice
             last = exc
