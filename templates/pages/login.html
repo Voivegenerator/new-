@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}लॉगिन{% endblock %}{% block desc %}अपने VoiceGenrator अकाउंट में लॉगिन करें।{% endblock %}{% block content %}
+<h1>लॉगिन करें</h1>
+{% with messages = get_flashed_messages() %}
+{% if messages %}{% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}{% endif %}
+{% endwith %}
+<form class="authform" method="post" action="/login">
+  <div>
+    <label for="email">ईमेल</label><br>
+    <input type="email" id="email" name="email" value="{{ email or '' }}" required autofocus>
+  </div>
+  <div>
+    <label for="password">पासवर्ड</label><br>
+    <input type="password" id="password" name="password" required minlength="6">
+  </div>
+  <button type="submit">लॉगिन करें</button>
+</form>
+<p class="authswitch">नया अकाउंट बनाना है? <a href="/signup">साइन अप करें</a></p>
+{% endblock %}

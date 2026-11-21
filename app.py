@@ -16,10 +16,23 @@ import imageio_ffmpeg
 
 import sfx
 import music
+from auth import auth_bp, init_db
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-this-in-render-env')
 app.config['MAX_CONTENT_LENGTH'] = 400000
+app.register_blueprint(auth_bp)
+init_db()
+
+
+@app.context_processor
+def inject_user():
+    from flask import session
+    return {
+        'logged_in': bool(session.get('user_id')),
+        'current_user_name': session.get('user_name'),
+    }
 MAX_CHARS = 25000
 MIX_SR = 24000
 
