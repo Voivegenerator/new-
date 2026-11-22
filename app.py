@@ -152,24 +152,77 @@ def gtts_piece(text, tld, rate, pitch):
     return result.stdout
 
 
+def _gemini_api_keys():
+    """All configured Gemini API keys, in order: GEMINI_API_KEY then
+    GEMINI_API_KEY_2 .. GEMINI_API_KEY_5 (several free-tier accounts,
+    so one account's daily/per-minute quota running out doesn't take
+    the feature down)."""
+    keys = []
+    primary = os.environ.get('GEMINI_API_KEY')
+    if primary:
+        keys.append(primary)
+    for i in range(2, 6):
+        k = os.environ.get(f'GEMINI_API_KEY_{i}')
+        if k:
+            keys.append(k)
+    return keys
+
+
+_GEMINI_KEY_LOCK = threading.Lock()
+_GEMINI_KEY_CURSOR = [0]
+
+
+def _gemini_keys_rotated():
+    """Configured keys, starting at a different one each call (round-robin)
+    so load spreads across accounts instead of hammering the first one
+    until it's exhausted."""
+    keys = _gemini_api_keys()
+    if not keys:
+        return keys
+    with _GEMINI_KEY_LOCK:
+        start = _GEMINI_KEY_CURSOR[0] % len(keys)
+        _GEMINI_KEY_CURSOR[0] += 1
+    return keys[start:] + keys[:start]
+
+
 def gemini_piece(text, voice_name, rate, pitch, style=None):
-    """Gemini TTS — expressive/emotional Hindi narration, guided by a style instruction."""
+    """Gemini TTS — expressive/emotional Hindi narration, guided by a style instruction.
+
+    Tries each configured Gemini API key (round-robin start) until one
+    works; a quota error (RESOURCE_EXHAUSTED / 429) moves on to the next
+    key, any other error is raised immediately so the normal retry/
+    fallback-to-Hindi-voice in synthesize_piece still kicks in.
+    """
     from google import genai
     from google.genai import types
-    api_key = os.environ.get('GEMINI_API_KEY')
-    if not api_key:
+    keys = _gemini_keys_rotated()
+    if not keys:
         raise RuntimeError('GEMINI_API_KEY not configured')
-    client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model='gemini-2.5-flash-preview-tts',
-        contents=f'{style or GEMINI_STYLE}: {text}',
-        config=types.GenerateContentConfig(
-            response_modalities=['AUDIO'],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name))),
-        ),
-    )
+    resp = None
+    last_exc = None
+    for key in keys:
+        try:
+            client = genai.Client(api_key=key)
+            resp = client.models.generate_content(
+                model='gemini-2.5-flash-preview-tts',
+                contents=f'{style or GEMINI_STYLE}: {text}',
+                config=types.GenerateContentConfig(
+                    response_modalities=['AUDIO'],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name))),
+                ),
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            if 'RESOURCE_EXHAUSTED' in msg or '429' in msg or 'quota' in msg.lower():
+                app.logger.warning('Gemini key exhausted, trying next key (%s)', msg[:160])
+                continue
+            raise
+    if resp is None:
+        raise last_exc or RuntimeError('All Gemini API keys exhausted')
     part = resp.candidates[0].content.parts[0]
     data = part.inline_data.data
     mime = part.inline_data.mime_type or 'audio/L16;rate=24000'
