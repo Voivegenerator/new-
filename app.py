@@ -17,6 +17,7 @@ import imageio_ffmpeg
 import sfx
 import music
 import voice_clone
+import gender_voice
 from auth import auth_bp, init_db
 
 app = Flask(__name__)
@@ -208,14 +209,19 @@ async def synthesize_piece(text, voice, rate, pitch):
     raise last
 
 
-async def synthesize(text, voice, rate, pitch):
-    chunks = split_text(text)
+async def synthesize(text, voice, rate, pitch, auto_gender=False):
+    # Normally the whole text is one voice. With auto_gender on, first split
+    # it into male/female-attributed stretches (gender_voice.py), then chunk
+    # each stretch to the usual size limit — each chunk keeps its own voice.
+    groups = gender_voice.auto_gender_groups(text, voice) if auto_gender else [(text, voice)]
+    chunks = [(c, v) for group_text, v in groups for c in split_text(group_text)]
     _tick('total', len(chunks))
     sem = asyncio.Semaphore(5)
 
-    async def one(chunk):
+    async def one(item):
+        chunk, v = item
         async with sem:
-            data = await synthesize_piece(chunk, voice, rate, pitch)
+            data = await synthesize_piece(chunk, v, rate, pitch)
             _tick('done')
             return data
     audio_parts = await asyncio.gather(*(one(c) for c in chunks))
@@ -278,12 +284,12 @@ def pcm_to_mp3(samples, sr):
         return out.read_bytes()
 
 
-async def synthesize_segments(texts, voice, rate, pitch):
+async def synthesize_segments(texts, voice, rate, pitch, auto_gender=False):
     sem = asyncio.Semaphore(2)
 
     async def one(t):
         async with sem:
-            return await synthesize(t, voice, rate, pitch)
+            return await synthesize(t, voice, rate, pitch, auto_gender)
     return await asyncio.gather(*(one(t) for t in texts))
 
 
@@ -292,10 +298,10 @@ AMBIENT_GAIN = 0.20
 AMBIENT_SECONDS = 12.0
 
 
-def build_mix(items, voice, rate, pitch, sfx_volume=1.0, raw=False):
+def build_mix(items, voice, rate, pitch, sfx_volume=1.0, raw=False, auto_gender=False):
     """items: [('text', str) | ('sfx', key)] -> mixed MP3 bytes."""
     texts = [v for k, v in items if k == 'text' and re.search(r'\w', v)]
-    voice_parts = asyncio.run(synthesize_segments(texts, voice, rate, pitch)) if texts else []
+    voice_parts = asyncio.run(synthesize_segments(texts, voice, rate, pitch, auto_gender)) if texts else []
     voice_pcm = iter([mp3_to_pcm(a) for a in voice_parts])
     del voice_parts
 
@@ -496,9 +502,15 @@ def parse_request(payload):
     use_sfx = bool(payload.get('sfx', False))
     if not use_sfx and not sfx.strip_tags(text).strip():
         return None, ('बोलने के लिए टेक्स्ट नहीं मिला।', 400)
+    # Auto male/female switching only makes sense for voice families that have
+    # a known opposite-gender counterpart (gender_voice.ENGINE_PAIR); for
+    # anything else (other languages, the user's own cloned voice) this is
+    # silently ignored rather than erroring.
+    auto_gender = bool(payload.get('auto_gender', False)) and gender_voice.pair_for(voice) is not None
     return dict(text=text, voice=voice, rate=f'{speed:+d}%', pitch=f'{pitch:+d}Hz', sfx=use_sfx,
                 auto=bool(payload.get('auto', True)), sfx_volume=num('sfx_volume', 1.0, 0.0, 2.0),
-                music=tune, music_volume=num('music_volume', 0.35, 0.0, 1.0)), None
+                music=tune, music_volume=num('music_volume', 0.35, 0.0, 1.0),
+                auto_gender=auto_gender), None
 
 
 def render_audio(job, progress=None):
@@ -507,16 +519,17 @@ def render_audio(job, progress=None):
         if progress is not None:
             progress['stage'] = name
     stage('voice')
+    ag = job.get('auto_gender', False)
     if job['sfx']:
         items = sfx.parse_script(job['text'], auto=job['auto'])
         if any(k == 'sfx' for k, _ in items):
             audio = build_mix(items, job['voice'], job['rate'], job['pitch'], job['sfx_volume'],
-                              raw=bool(job['music']))
+                              raw=bool(job['music']), auto_gender=ag)
             stage('mix')
         else:
-            audio = asyncio.run(synthesize(sfx.strip_tags(job['text']), job['voice'], job['rate'], job['pitch']))
+            audio = asyncio.run(synthesize(sfx.strip_tags(job['text']), job['voice'], job['rate'], job['pitch'], ag))
     else:
-        audio = asyncio.run(synthesize(sfx.strip_tags(job['text']).strip(), job['voice'], job['rate'], job['pitch']))
+        audio = asyncio.run(synthesize(sfx.strip_tags(job['text']).strip(), job['voice'], job['rate'], job['pitch'], ag))
     if job['music']:
         stage('music')
         audio = add_music(audio, job['music'], job['music_volume'])
