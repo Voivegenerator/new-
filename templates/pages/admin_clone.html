@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<title>Voice clone — admin</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+  button { margin-top: 20px; padding: 10px 16px; font-size: 15px; cursor: pointer; }
+  pre { white-space: pre-wrap; background: #f3f3f3; padding: 12px; border-radius: 6px; margin-top: 20px; }
+</style>
+</head>
+<body>
+  <h2>Voice replication — one-time admin setup</h2>
+  <p>Upload the reference recording and the consent recording, then submit. This calls <code>/api/admin/clone-voice</code> directly from this page.</p>
+  <form id="f">
+    <label>Admin token
+      <input type="password" id="token" autocomplete="off">
+    </label>
+    <label>Reference recording (source_audio)
+      <input type="file" id="source_audio" accept="audio/*">
+    </label>
+    <label>Consent recording (consent_audio)
+      <input type="file" id="consent_audio" accept="audio/*">
+    </label>
+    <label>Display name (optional)
+      <input type="text" id="display_name" value="VoiceGenrator owner voice">
+    </label>
+    <button type="submit">Create cloned voice</button>
+  </form>
+  <pre id="out"></pre>
+<script>
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const out = document.getElementById('out');
+  out.textContent = 'Working...';
+  const fd = new FormData();
+  fd.append('source_audio', document.getElementById('source_audio').files[0]);
+  fd.append('consent_audio', document.getElementById('consent_audio').files[0]);
+  fd.append('display_name', document.getElementById('display_name').value);
+  try {
+    const res = await fetch('/api/admin/clone-voice', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': document.getElementById('token').value },
+      body: fd,
+    });
+    const text = await res.text();
+    out.textContent = 'HTTP ' + res.status + '\n' + text;
+  } catch (err) {
+    out.textContent = 'Request failed: ' + err;
+  }
+});
+</script>
+</body>
+</html>

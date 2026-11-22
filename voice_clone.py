@@ -23,9 +23,18 @@ import re
 import subprocess
 
 import imageio_ffmpeg
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, render_template, request
 
 clone_bp = Blueprint('clone', __name__)
+
+
+@clone_bp.get('/api/admin/clone-voice-ui')
+def clone_voice_ui():
+    """A small page to submit the reference + consent recordings from a
+    browser (simpler than curl/Postman for a one-time admin task). The
+    page itself needs no auth to view; the actual POST below still
+    requires the correct ADMIN_CLONE_TOKEN."""
+    return render_template('pages/admin_clone.html')
 
 # Google requires the voice's owner to read this exact sentence as proof of
 # consent (hi-IN locale). Before recording, re-check it word-for-word
