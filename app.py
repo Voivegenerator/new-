@@ -22,7 +22,10 @@ from auth import auth_bp, init_db
 app = Flask(__name__)
 app.json.ensure_ascii = False
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-this-in-render-env')
-app.config['MAX_CONTENT_LENGTH'] = 400000
+# 400KB was fine for text-only TTS requests, but it also blocked the
+# admin voice-clone upload (two audio files, a few hundred KB each).
+# 15MB gives headroom for longer reference/consent recordings too.
+app.config['MAX_CONTENT_LENGTH'] = 15 * 1024 * 1024
 app.register_blueprint(auth_bp)
 app.register_blueprint(voice_clone.clone_bp)
 init_db()
