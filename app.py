@@ -16,6 +16,7 @@ import imageio_ffmpeg
 
 import sfx
 import music
+import voice_clone
 from auth import auth_bp, init_db
 
 app = Flask(__name__)
@@ -23,6 +24,7 @@ app.json.ensure_ascii = False
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-this-in-render-env')
 app.config['MAX_CONTENT_LENGTH'] = 400000
 app.register_blueprint(auth_bp)
+app.register_blueprint(voice_clone.clone_bp)
 init_db()
 
 
@@ -65,6 +67,15 @@ FALLBACK = {
  'gemini:Kore': 'hi-IN-SwaraNeural',
  'gemini:Charon': 'hi-IN-MadhurNeural',
 }
+
+# v7: the site owner's own cloned voice (optional, beta) — appears only
+# once GEMINI_CLONED_VOICE_ID is set in the environment. That id is
+# created once via POST /api/admin/clone-voice (see voice_clone.py) from
+# a short reference recording + a matching consent recording.
+CLONED_VOICE_ID = os.environ.get('GEMINI_CLONED_VOICE_ID')
+if CLONED_VOICE_ID:
+    VOICES['hi_clone_user'] = (f'geminiclone:{CLONED_VOICE_ID}', 0, 0)
+    FALLBACK[f'geminiclone:{CLONED_VOICE_ID}'] = os.environ.get('GEMINI_CLONED_VOICE_FALLBACK', 'hi-IN-SwaraNeural')
 
 # Gemini TTS follows a natural-language style instruction placed before the text.
 GEMINI_STYLE = 'भावनात्मक और कहानी सुनाने वाले अंदाज़ में, प्राकृतिक उतार-चढ़ाव के साथ बोलो'
@@ -180,6 +191,9 @@ async def synthesize_piece(text, voice, rate, pitch):
                 return await asyncio.to_thread(gtts_piece, text, voice.split(':', 1)[1], rate, pitch)
             if voice.startswith('gemini:'):
                 return await asyncio.to_thread(gemini_piece, text, voice.split(':', 1)[1], rate, pitch)
+            if voice.startswith('geminiclone:'):
+                return await asyncio.to_thread(
+                    voice_clone.gemini_cloned_piece, text, voice.split(':', 1)[1], rate, pitch, GEMINI_STYLE)
             return await _edge_piece(text, voice, rate, pitch)
         except Exception as exc:  # retry once, then fall back to a Hindi voice
             last = exc
@@ -380,7 +394,7 @@ def add_music(voice, tune_id, level=0.35):
 
 @app.get('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html', has_cloned_voice=bool(CLONED_VOICE_ID))
 
 SITE = 'https://aivoicestudio.onrender.com'
 POSTS = [
