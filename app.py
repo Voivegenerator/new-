@@ -63,6 +63,9 @@ VOICES = {
  'hi_new_gemini': ('gemini:Kore', 0, 0),
  # v6: Gemini TTS, male — same emotional/expressive engine, male voice
  'hi_new_gemini_m': ('gemini:Charon', 0, 0),
+ # v8: Gemini TTS, mature male — gravelly prebuilt voice + a sarcastic
+ # style instruction, pitched slightly down for a deeper/resonant feel.
+ 'hi_new_gemini_sarcastic': ('gemini:Algenib:sarcastic_deep', 0, -8),
 }
 # If a new multilingual voice is unavailable, fall back to the closest Hindi voice.
 FALLBACK = {
@@ -70,6 +73,7 @@ FALLBACK = {
  'gtts:co.in': 'hi-IN-SwaraNeural',
  'gemini:Kore': 'hi-IN-SwaraNeural',
  'gemini:Charon': 'hi-IN-MadhurNeural',
+ 'gemini:Algenib:sarcastic_deep': 'hi-IN-MadhurNeural',
 }
 
 # v7: the site owner's own cloned voice (optional, beta) — appears only
@@ -83,6 +87,16 @@ if CLONED_VOICE_ID:
 
 # Gemini TTS follows a natural-language style instruction placed before the text.
 GEMINI_STYLE = 'भावनात्मक और कहानी सुनाने वाले अंदाज़ में, प्राकृतिक उतार-चढ़ाव के साथ बोलो'
+
+# Per-voice style variants, keyed by the tag after the second ':' in a
+# 'gemini:<prebuilt_name>:<style_key>' voice string (see VOICES above).
+# A voice string with no style tag uses GEMINI_STYLE (the default).
+GEMINI_STYLES = {
+    'sarcastic_deep': (
+        'एक परिपक्व, गहरी और गूंजती हुई पुरुष आवाज़ में, व्यंग्यात्मक (sarcastic) और '
+        'ताना मारने वाले, थोड़े मज़ाकिया-तीखे अंदाज़ में बोलो — धीमी, भारी और रुक-रुक कर बोलने वाली शैली'
+    ),
+}
 
 def split_text(text, limit=1100):
     pieces = re.split(r'(?<=[।.!?\n])\s*', text)
@@ -138,7 +152,7 @@ def gtts_piece(text, tld, rate, pitch):
     return result.stdout
 
 
-def gemini_piece(text, voice_name, rate, pitch):
+def gemini_piece(text, voice_name, rate, pitch, style=None):
     """Gemini TTS — expressive/emotional Hindi narration, guided by a style instruction."""
     from google import genai
     from google.genai import types
@@ -148,7 +162,7 @@ def gemini_piece(text, voice_name, rate, pitch):
     client = genai.Client(api_key=api_key)
     resp = client.models.generate_content(
         model='gemini-2.5-flash-preview-tts',
-        contents=f'{GEMINI_STYLE}: {text}',
+        contents=f'{style or GEMINI_STYLE}: {text}',
         config=types.GenerateContentConfig(
             response_modalities=['AUDIO'],
             speech_config=types.SpeechConfig(
@@ -194,7 +208,10 @@ async def synthesize_piece(text, voice, rate, pitch):
             if voice.startswith('gtts:'):
                 return await asyncio.to_thread(gtts_piece, text, voice.split(':', 1)[1], rate, pitch)
             if voice.startswith('gemini:'):
-                return await asyncio.to_thread(gemini_piece, text, voice.split(':', 1)[1], rate, pitch)
+                tag = voice.split(':', 2)[1:]  # [prebuilt_name] or [prebuilt_name, style_key]
+                voice_name = tag[0]
+                style = GEMINI_STYLES.get(tag[1]) if len(tag) > 1 else None
+                return await asyncio.to_thread(gemini_piece, text, voice_name, rate, pitch, style)
             if voice.startswith('geminiclone:'):
                 return await asyncio.to_thread(
                     voice_clone.gemini_cloned_piece, text, voice.split(':', 1)[1], rate, pitch, GEMINI_STYLE)
