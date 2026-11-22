@@ -55,12 +55,15 @@ VOICES = {
  'hi_new_google': ('gtts:co.in', 0, 0),
  # v5: Gemini TTS — emotional/expressive narration, replaces Ava & Emma
  'hi_new_gemini': ('gemini:Kore', 0, 0),
+ # v6: Gemini TTS, male — same emotional/expressive engine, male voice
+ 'hi_new_gemini_m': ('gemini:Charon', 0, 0),
 }
 # If a new multilingual voice is unavailable, fall back to the closest Hindi voice.
 FALLBACK = {
  'en-US-AndrewMultilingualNeural': 'hi-IN-MadhurNeural', 'en-US-BrianMultilingualNeural': 'hi-IN-MadhurNeural',
  'gtts:co.in': 'hi-IN-SwaraNeural',
  'gemini:Kore': 'hi-IN-SwaraNeural',
+ 'gemini:Charon': 'hi-IN-MadhurNeural',
 }
 
 # Gemini TTS follows a natural-language style instruction placed before the text.
